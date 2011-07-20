@@ -286,8 +286,13 @@ endif "}}}
 
 " DEFAULT wiki {{{
 let s:vimwiki_defaults = {}
-let s:vimwiki_defaults.path = '~/vimwiki/'
-let s:vimwiki_defaults.path_html = '~/vimwiki_html/'
+if exists('g:plugin_data')
+  let s:vimwiki_defaults.path = g:plugin_data . '/vimwiki/'
+  let s:vimwiki_defaults.path_html = g:plugin_data . '/vimwiki_html/'
+else
+  let s:vimwiki_defaults.path = '~/vimwiki/'
+  let s:vimwiki_defaults.path_html = '~/vimwiki_html/'
+endif
 let s:vimwiki_defaults.css_name = 'style.css'
 let s:vimwiki_defaults.index = 'index'
 let s:vimwiki_defaults.ext = '.wiki'
