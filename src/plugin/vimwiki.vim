@@ -187,11 +187,13 @@ endfunction "}}}
 if !exists("*VimwikiWeblinkHandler") "{{{
   function VimwikiWeblinkHandler(weblink)
     if has("win32")
-      execute '!start ' . shellescape(a:weblink, 1)
+      "execute '!start ' . shellescape(a:weblink, 1)
+      "http://vim.wikia.com/wiki/Opening_current_Vim_file_in_your_Windows_browser
+      execute 'silent ! start "Title" /B ' . shellescape(a:weblink, 1)
     elseif has("macunix")
       execute '!open ' . shellescape(a:weblink, 1)
     else
-      execute '!xdg-open ' . shellescape(a:weblink, 1)
+      execute 'silent !xdg-open ' . shellescape(a:weblink, 1)
     endif
   endfunction
 endif "}}}
@@ -207,9 +209,9 @@ let s:vimwiki_defaults.ext = '.wiki'
 let s:vimwiki_defaults.maxhi = 1
 let s:vimwiki_defaults.syntax = 'default'
 
-let s:vimwiki_defaults.template_path = '~/vimwiki/templates/'
-let s:vimwiki_defaults.template_default = 'default'
-let s:vimwiki_defaults.template_ext = '.html'
+let s:vimwiki_defaults.template_path = ''
+let s:vimwiki_defaults.template_default = ''
+let s:vimwiki_defaults.template_ext = ''
 
 let s:vimwiki_defaults.nested_syntaxes = {}
 let s:vimwiki_defaults.auto_export = 0
@@ -281,9 +283,10 @@ call s:default('diary_months',
 
 
 call s:default('current_idx', 0)
+"}}}
 
-"
-" WikiLinks
+
+" LINKS: WikiLinks  {{{
 let wword = '\C\<\%(['.g:vimwiki_upper.']['.g:vimwiki_lower.']\+\)\{2,}\>'
 
 " 0. WikiWordURLs
@@ -358,29 +361,37 @@ endif
 " *c) match DESCRIPTION within ANY wikilink
 let g:vimwiki_rxWikiLinkMatchDescr = g:vimwiki_rxWikiLinkMatchDescr3.'\|'.
       \ g:vimwiki_rxWikiLinkMatchDescr2.'\|'.g:vimwiki_rxWikiLinkMatchDescr1
-
-" Url Character Set
-let g:vimwiki_rxWebUrlChar = '[^| \t]'
-"
-" WebLinks
-" match URL
-" TODO http://en.wikipedia.org/wiki/URI_scheme  http://tools.ietf.org/html/rfc3986
-let g:vimwiki_rxWeblinkUrl = ''.
-      \'\%('.
-        \'\%('.
-          \'\%(https\?\|file\|ftp\|gopher\|telnet\|nntp\|ldap\|rsync\|imap\|pop\|ircs\?\|cvs\|svn\|svn+ssh\|git\|ssh\|fish\|sftp\|notes\|ms-help\):'.
-          \'\%(\%(//\)\|\%(\\\\\)\)'.
-        \'\)'.
-        \'\|'.
-        \'\%(mailto\|news\|xmpp\|sips\?\|doi\|urn\|tel\):'.
-      \'\)'.
-      \'\%('.
-        \'\%('. g:vimwiki_rxWebUrlChar.'\{-1,}'. '([^ \t()]*)'. '\)'.
-        \'\|'.
-        \'\%('. g:vimwiki_rxWebUrlChar.'\+'. '[.,;!?\]()]\@<!'. '\)'.
-      \'\)'
+"}}}
 
 "
+" LINKS: WebLinks {{{
+" match URL for common protocols;  XXX ms-help ??
+" see http://en.wikipedia.org/wiki/URI_scheme  http://tools.ietf.org/html/rfc3986
+let g:vimwiki_rxWebProtocols = ''.
+    \  '\%('.
+      \  '\%('.
+        \  '\%(https\?\|file\|ftp\|gopher\|telnet\|nntp\|ldap\|rsync\|imap\|pop\|ircs\?\|cvs\|svn\|svn+ssh\|git\|ssh\|fish\|sftp\|notes\|ms-help\):'.
+        \  '\%(\%(//\)\|\%(\\\\\)\)'.
+      \  '\)'.
+      \  '\|'.
+      \  '\%(mailto\|news\|xmpp\|sips\?\|doi\|urn\|tel\):'.
+    \  '\)'
+let g:vimwiki_rxWeblinkUrl = g:vimwiki_rxWebProtocols .
+    \  '\S\{-1,}\%(([^ \t()]*)\)\=' . '\%([),:;.!?]\=\%([ \t]\|$\)\)\@='
+" free-standing links: keep URL UR(L) strip trailing punct: URL; URL) UR(L)) 
+let g:vimwiki_rxWeblinkUrl3 = g:vimwiki_rxWebProtocols .
+    \  '[^ \]]*' . ' *]\@='
+" ending with <SP> or ] : [URL descr] or [URL] or [URL ]
+let g:vimwiki_rxWeblinkUrl2 = g:vimwiki_rxWebProtocols .
+    \  '\S\{-1,}\%(([^ \t()]*)\)\=' . ' *)\@='
+" ending with ) : (URL) or (URL ) or (UR(L)) or (UR(L) )
+" " Url Character Set
+" let g:vimwiki_rxWebUrlChar = '[^| \t]'
+" let g:vimwiki_rxWeblinkUrl = ....
+"   \  g:vimwiki_rxWebUrlChar.'\{-1,}'. '([^ \t()]*)' 
+"   \  g:vimwiki_rxWebUrlChar.'\+'. '[.,;!?\]()]\@<!' 
+
+" FIXME all submatches can be done with "numbered" \( \) groups
 " 0. URL
 let g:vimwiki_rxWeblink0 = '[\["(|]\@<!'. g:vimwiki_rxWeblinkUrl
 " 0a) match URL within URL
@@ -413,32 +424,33 @@ let g:vimwiki_rxWeblinkSuffix2 = ')'
 " 2a) match [DESCRIPTION](URL)
 let g:vimwiki_rxWeblink2 = g:vimwiki_rxWeblinkPrefix2.
       \ g:vimwiki_rxWeblinkDescr2. g:vimwiki_rxWeblinkSeparator2.
-      \ g:vimwiki_rxWeblinkUrl. g:vimwiki_rxWeblinkSuffix2
+      \ g:vimwiki_rxWeblinkUrl2. g:vimwiki_rxWeblinkSuffix2
 " 2b) match URL within [DESCRIPTION](URL)
 let g:vimwiki_rxWeblinkMatchUrl2 = g:vimwiki_rxWeblinkPrefix2.
       \ g:vimwiki_rxWeblinkDescr2. g:vimwiki_rxWeblinkSeparator2.
-      \ '\zs'. g:vimwiki_rxWeblinkUrl. '\ze'. g:vimwiki_rxWeblinkSuffix2
+      \ '\zs'. g:vimwiki_rxWeblinkUrl2. '\ze'. g:vimwiki_rxWeblinkSuffix2
 " 2c) match DESCRIPTION within [DESCRIPTION](URL)
 let g:vimwiki_rxWeblinkMatchDescr2 = g:vimwiki_rxWeblinkPrefix2.
       \ '\zs'. g:vimwiki_rxWeblinkDescr2. '\ze' . g:vimwiki_rxWeblinkSeparator2.
-      \ g:vimwiki_rxWeblinkUrl. g:vimwiki_rxWeblinkSuffix2
+      \ g:vimwiki_rxWeblinkUrl2. g:vimwiki_rxWeblinkSuffix2
 "
 " 3. [URL DESCRIPTION]
+" 2012-02-04 DONE - FIXME not starting with \[\[  ? 
 let g:vimwiki_rxWeblinkPrefix3 = '[\[\]]\@<!\['
 let g:vimwiki_rxWeblinkSeparator3 = '\s*'
 let g:vimwiki_rxWeblinkDescr3 = '\%([^\[\]]*\)'
 let g:vimwiki_rxWeblinkSuffix3 = '\]'
 " 3a) match [URL DESCRIPTION]
 let g:vimwiki_rxWeblink3 = g:vimwiki_rxWeblinkPrefix3.
-      \ g:vimwiki_rxWeblinkUrl. g:vimwiki_rxWeblinkSeparator3. 
+      \ g:vimwiki_rxWeblinkUrl3. g:vimwiki_rxWeblinkSeparator3. 
       \ g:vimwiki_rxWeblinkDescr3. g:vimwiki_rxWeblinkSuffix3
 " 3b) match URL within [URL DESCRIPTION]
 let g:vimwiki_rxWeblinkMatchUrl3 = g:vimwiki_rxWeblinkPrefix3.
-      \ '\zs'. g:vimwiki_rxWeblinkUrl. '\ze'. g:vimwiki_rxWeblinkSeparator3. 
+      \ '\zs'. g:vimwiki_rxWeblinkUrl3. '\ze'. g:vimwiki_rxWeblinkSeparator3. 
       \ g:vimwiki_rxWeblinkDescr3. g:vimwiki_rxWeblinkSuffix3
 " 3c) match DESCRIPTION within [URL DESCRIPTION]
 let g:vimwiki_rxWeblinkMatchDescr3 = g:vimwiki_rxWeblinkPrefix3.
-      \ g:vimwiki_rxWeblinkUrl. g:vimwiki_rxWeblinkSeparator3. 
+      \ g:vimwiki_rxWeblinkUrl3. g:vimwiki_rxWeblinkSeparator3. 
       \ '\zs'. g:vimwiki_rxWeblinkDescr3. '\ze'. g:vimwiki_rxWeblinkSuffix3
 "
 " *. ANY weblink
@@ -454,12 +466,13 @@ let g:vimwiki_rxWeblinkMatchUrl = g:vimwiki_rxWeblinkMatchUrl2.'\|'.
 let g:vimwiki_rxWeblinkMatchDescr = g:vimwiki_rxWeblinkMatchDescr2.'\|'.
         \ g:vimwiki_rxWeblinkMatchDescr3.'\|'. g:vimwiki_rxWeblinkMatchDescr1.'\|'.
         \ g:vimwiki_rxWeblinkMatchDescr0
+"}}}
 
 
 " characters, excluding' ', '\t', or '[' following ']'
 let g:vimwiki_rxImageUrlChar = '\%([^| \t\[]\|\]\@<!\[\)'
 "
-" Images
+" LINKS: Images {{{
 " match URL
 let g:vimwiki_rxImageUrl = ''.
       \'\%('.
@@ -564,10 +577,6 @@ let g:vimwiki_rxImageMatchDescr = g:vimwiki_rxImageMatchDescr3.'\|'.
 let g:vimwiki_rxImageMatchStyle = g:vimwiki_rxImageMatchStyle3.'\|'.
         \ g:vimwiki_rxImageMatchStyle2 " .'\|'.g:vimwiki_rxImageMatchStyle0
 "}}}
-
-
-
-
 
 
 " AUTOCOMMANDS for all known wiki extensions {{{
