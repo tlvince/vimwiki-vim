@@ -369,255 +369,99 @@ endfunction "}}}
 "endfunction "}}}
 
 
-"{{{ Replacing/Refactoring tag_internal_link, tag_external_link,
-"   tag_wikiword_link, tag_barebone_link
-function! s:linkify_image(src, descr, style) "{{{
-  let src_str = ' src="'.a:src.'"'
-  let descr_str = ''
-  let style_str = ''
-  if a:descr != ''
-    let descr_str = ' alt="'.a:descr.'"'
-  endif
-  if a:style != ''
-    let style_str = ' style="'.a:style.'"'
-  endif
-  return '<img'.src_str.descr_str.style_str.' />'
-endfunction "}}}
-
-function! s:linkify_link(src, descr) "{{{
+"{{{ v1.3 links
+function! vimwiki#html#linkify_link(src, descr) "{{{
   let src_str = ' href="'.a:src.'"'
-  let descr_str = ''
-  if a:descr != ''
-    if a:descr =~ g:vimwiki_rxImage
-      let descr_str = s:tag_image(a:descr)
-    elseif a:descr =~ g:vimwiki_rxImageUrl
-      let descr_str = s:linkify_image(a:descr, '', '')
-    else
-      let descr_str = a:descr
-    endif
-  endif
+  let descr = substitute(a:descr,'^\s*\(.*\)\s*$','\1','')
+  let descr = (descr == "" ? a:src : descr)
+  let descr_str = (descr =~ g:vimwiki_rxWikiIncl 
+        \ ? s:tag_wikiincl(descr) 
+        \ : descr)
   return '<a'.src_str.'>'.descr_str.'</a>'
 endfunction "}}}
 
-function s:linkify_dirlink(src, descr) "{{{
-  let dir_link = ''
-  if g:vimwiki_dir_link != ''
-    let dir_link = g:vimwiki_dir_link.'.html'
-  endif
-  return s:linkify_link(a:src.dir_link, a:descr)
+function! vimwiki#html#linkify_image(src, descr, style) "{{{
+  let src_str = ' src="'.a:src.'"'
+  let descr_str = (a:descr != '' ? ' alt="'.a:descr.'"' : '')
+  let style_str = (a:style != '' ? ' style="'.a:style.'"' : '')
+  return '<img'.src_str.descr_str.style_str.' />'
 endfunction "}}}
 
-function! s:tag_image(value) "{{{
+function! s:tag_imagelink(value) "{{{
   let str = a:value
-  let url = matchstr(str, g:vimwiki_rxImageMatchUrl)
-  let descr = matchstr(str, g:vimwiki_rxImageMatchDescr)
-  let style = matchstr(str, g:vimwiki_rxImageMatchStyle)
-  let line = s:linkify_image(url, descr, style)
+  let url = matchstr(str, g:vimwiki_rxImagelinkMatchUrl)
+  let descr = matchstr(str, g:vimwiki_rxImagelinkMatchDescr)
+  let style = matchstr(str, g:vimwiki_rxImagelinkMatchStyle)
+  let line = vimwiki#html#linkify_image(url, descr, style)
   return line
 endfunction "}}}
 
 function! s:tag_weblink(value) "{{{
-  " [[url]]                     -> <a href="url">url</a>
-  " [[imgurl]]                  -> <a href="imgurl"><img src="imgurl"/></a>
-  " [descr](url),"descr":url, or
-  "   [url descr]               -> <a href="url">descr</a>
-  " [imgurl](url),"imgurl":url, or
-  "   [url imgurl]              -> <a href="url"><img src="imgurl"/></a>
+  "  Weblink Template -> <a href="url">descr</a>
   let str = a:value
   let url = matchstr(str, g:vimwiki_rxWeblinkMatchUrl)
   let descr = matchstr(str, g:vimwiki_rxWeblinkMatchDescr)
-  if descr == ""
-    let descr = url
+  let line = vimwiki#html#linkify_link(url, descr)
+  return line
+endfunction "}}}
+
+function! s:tag_wikiincl(value) "{{{
+  " {{imgurl}{arg1}{arg2}}    -> ???
+  " {{imgurl}}                -> <img src="imgurl"/>
+  " {{imgurl}{descr}{style}}  -> <img src="imgurl" alt="descr" style="style" />
+  let str = a:value
+  if match(str, g:vimwiki_wikiword_escape_prefix) == 0
+    return a:value[len(g:vimwiki_wikiword_escape_prefix):]
   endif
-  let line = s:linkify_link(url, descr)
+  " custom transclusions
+  let line = VimwikiWikiIncludeHandler(str)
+  " otherwise, assume image transclusion
+  if line == ''
+    let url_0 = matchstr(str, g:vimwiki_rxWikiInclMatchUrl)
+    let descr = matchstr(str, VimwikiWikiInclMatchArg(1))
+    let style = matchstr(str, VimwikiWikiInclMatchArg(2))
+    " resolve url
+    let [scheme, path, subdir, lnk, ext, url] = 
+          \ vimwiki#base#resolve_scheme(url_0, '.html')
+    " generate html output
+    if g:vimwiki_debug
+      echom '{{scheme='.scheme.', path='.path.', subdir='.subdir.', lnk='.lnk.', ext='.ext.'}}'
+    endif
+    let url = escape(url, '#')
+    let line = vimwiki#html#linkify_image(url, descr, style)
+    return line
+  endif
   return line
 endfunction "}}}
 
 function! s:tag_wikilink(value) "{{{
-  " [[url]]                        -> <a href="url.html">url</a>
-  " [[url|descr]],[[url][descr]]   -> <a href="url.html">descr</a>
-  " [[url|imgurl]],[[url][imgurl]] -> <a href="url.html"><img src="imgurl"/></a>
-  " [[fileurl.ext][descr]]         -> <a href="fileurl.ext/index.html">descr</a>
-  " [[dirurl/][descr]]             -> <a href="dirurl/index.html">descr</a>
+  " [[url]]                -> <a href="url.html">url</a>
+  " [[url][descr]]         -> <a href="url.html">descr</a>
+  " [[url][{{...}}]]        -> <a href="url.html"> ... </a>
+  " [[fileurl.ext][descr]] -> <a href="fileurl.ext">descr</a>
+  " [[dirurl/][descr]]     -> <a href="dirurl/index.html">descr</a>
   let str = a:value
   if match(str, g:vimwiki_wikiword_escape_prefix) == 0
     return a:value[len(g:vimwiki_wikiword_escape_prefix):]
   endif
   let url = matchstr(str, g:vimwiki_rxWikiLinkMatchUrl)
   let descr = matchstr(str, g:vimwiki_rxWikiLinkMatchDescr)
-  if descr == ""
-    let descr = url
+  let descr = (substitute(descr,'^\s*\(.*\)\s*$','\1','') != '' ? descr : url)
+
+  " resolve url
+  let [scheme, path, subdir, lnk, ext, url] = 
+        \ vimwiki#base#resolve_scheme(url, '.html')
+
+  " generate html output
+  if g:vimwiki_debug
+    echom '[[scheme='.scheme.', path='.path.', subdir='.subdir.', lnk='.lnk.', ext='.ext.']]'
   endif
-  if vimwiki#base#is_link_to_dir(url)
-    " [[directoryurl/][descr]]
-    let line = s:linkify_dirlink(url, descr)
-  elseif vimwiki#base#is_non_wiki_link(url)
-    " [[fileurl.ext][descr]]
-    let line = s:linkify_link(url, descr)
-  else
-    " [[url]], [[url|descr]], [[url][descr]], [[url|imgurl]], [[url][imgurl]]
-    let line = s:linkify_link(vimwiki#base#safe_link(url).'.html', descr)
-  endif
+  let url = escape(url, '#')
+  let line = vimwiki#html#linkify_link(url, descr)
   return line
 endfunction "}}}
-"}}} Replacing/Refactoring tag_internal_link, tag_external_link,
-"   tag_wikiword_link, tag_barebone_link
+"}}} v1.3 links
 
-
-"
-"
-"
-"
-"{{{ Deprecated/Refactored by linkify_image, linkify_link, tag_image,
-"   tag_weblink, and tag_wikilink
-"
-function! s:tag_internal_link(value) "{{{
-  " Make <a href="This is a link">This is a link</a>
-  " from [[This is a link]]
-  " Make <a href="link">This is a link</a>
-  " from [[link|This is a link]]
-  " Make <a href="link">This is a link</a>
-  " from [[link][This is a link]]
-  " TODO: rename function -- it makes not only internal links.
-  " TODO: refactor it.
-
-  function! s:linkify(src, caption, style) "{{{
-    if a:style == ''
-      let style_str = ''
-    else
-      let style_str = ' style="'.a:style.'"'
-    endif
-
-    if s:is_img_link(a:caption)
-      " [[url|imgurl]] 
-      "   !! The meaning of this syntax has changed in s:tag_wikilink v1.3.
-      "
-      " [[url|imgurl|style]] and [[url][imgurl][style]] 
-      "   !? These syntaxes were NOT DOCUMENTED in (:help vimwiki) v1.2
-      "   !! The meaning of this syntax has changed in s:tag_wikilink v1.3.
-      "
-      " Use weblink formats to create thumbnail links 
-      "   e.g. : [imgurl](url), "imgurl":url, or [url imgurl]
-      " XXX: see s:tag_wikilink(), s:tag_image(), s:linkify_link(), and
-      " s:linkify_image()
-      let link = '<a href="'.a:src.'"><img src="'.a:caption.'"'.style_str.' />'.
-            \ '</a>'
-    elseif vimwiki#base#is_non_wiki_link(a:src)
-      " XXX: see s:tag_wikilink(), s:linkify_link()
-      let link = '<a href="'.a:src.'">'.a:caption.'</a>'
-    elseif s:is_img_link(a:src)
-      " XXX: see s:tag_image() and s:linkify_image()
-      let link = '<img src="'.a:src.'" alt="'.a:caption.'"'. style_str.' />'
-    elseif vimwiki#base#is_link_to_dir(a:src)
-      " XXX: see s:tag_wikilink(), s:linkify_dirlink()
-      if g:vimwiki_dir_link == ''
-        let link = '<a href="'.vimwiki#base#safe_link(a:src).'">'.a:caption.'</a>'
-      else
-        let link = '<a href="'.vimwiki#base#safe_link(a:src).
-              \ g:vimwiki_dir_link.'.html">'.a:caption.'</a>'
-      endif
-    else
-      " XXX: see s:tag_wikilink() and s:linkify_link()
-      let link = '<a href="'.vimwiki#base#safe_link(a:src).
-            \ '.html">'.a:caption.'</a>'
-    endif
-
-    return link
-  endfunction "}}}
-
-  let value = s:mid(a:value, 2)
-
-  let line = ''
-  if value =~ '|'
-    let link_parts = split(value, "|", 1)
-  else
-    let link_parts = split(value, "][", 1)
-  endif
-
-
-  if len(link_parts) > 1
-    if len(link_parts) < 3
-      let style = ""
-    else
-      let style = link_parts[2]
-    endif
-
-    let line = s:linkify(link_parts[0], link_parts[1], style)
-
-  else
-    let line = s:linkify(value, value, '')
-  endif
-  return line
-endfunction "}}}
-
-function! s:tag_external_link(value) "{{{
-  "" Make <a href="link">link desc</a>
-  "" from [link link desc]
-
-  let value = s:mid(a:value, 1)
-
-  let line = ''
-  if s:is_web_link(value)
-    let lnkElements = split(value)
-    let head = lnkElements[0]
-    let rest = join(lnkElements[1:])
-    if rest==""
-      let rest=head
-    endif
-    if s:is_img_link(rest)
-      if rest!=head
-        " XXX: see s:tag_weblink, s:tag_image, s:linkify_link, and s:linkify_image
-        let line = '<a href="'.head.'"><img src="'.rest.'" /></a>'
-      else
-        " XXX: see s:tag_weblink, s:tag_image, s:linkify_link, and s:linkify_image
-        let line = '<img src="'.rest.'" />'
-      endif
-    else
-      let line = '<a href="'.head.'">'.rest.'</a>'
-    endif
-  elseif s:is_img_link(value)
-      " XXX: this syntax has been deprecated in favor of [[-wikilink syntax
-    let line = '<img src="'.value.'" />'
-  else
-    " [alskfj sfsf] shouldn't be a link. So return it as it was --
-    " enclosed in [...]
-    let line = '['.value.']'
-  endif
-  return line
-endfunction "}}}
-
-function! s:tag_wikiword_link(value) "{{{
-  " Make <a href="WikiWord">WikiWord</a> from WikiWord
-
-  " XXX: see s:tag_wikilink and s:linkify_link
-  if a:value[0] =~ g:vimwiki_wikiword_escape_prefix
-    return a:value[1:]
-  elseif g:vimwiki_camel_case
-    let line = '<a href="'.a:value.'.html">'.a:value.'</a>'
-    return line
-  else
-    return a:value
-  endif
-endfunction "}}}
-
-function! s:tag_barebone_link(value) "{{{
-  "" Make <a href="http://habamax.ru">http://habamax.ru</a>
-  "" from http://habamax.ru
-
-  " XXX: see s:tag_weblink and s:linkify_link
-  if s:is_img_link(a:value)
-    let line = '<img src="'.a:value.'" />'
-  else
-    let line = '<a href="'.a:value.'">'.a:value.'</a>'
-  endif
-  return line
-endfunction "}}}
-"
-"}}} Deprecated/Refactored by linkify_image, linkify_link, tag_image,
-"   tag_weblink, and tag_wikilink
-"
-"
-"
 
 function! s:tag_no_wikiword_link(value) "{{{
   echomsg "tag_no_wikiword_link: ".a:value
@@ -730,15 +574,10 @@ endfunction " }}}
 
 function! s:process_tags_links(line) " {{{
   let line = a:line
-  let line = s:make_tag(line, g:vimwiki_rxImage, 's:tag_image')
-  let line = s:make_tag(line, g:vimwiki_rxWeblink, 's:tag_weblink')
   let line = s:make_tag(line, g:vimwiki_rxWikiLink, 's:tag_wikilink')
-"{{{ Replaced by tag_image, tag_weblink, and tag_wikilink
-" let line = s:make_tag(line, '\[\[.\{-}\]\]', 's:tag_internal_link')
-" let line = s:make_tag(line, '\[.\{-}\]', 's:tag_external_link')
-" let line = s:make_tag(line, g:vimwiki_rxWeblink, 's:tag_barebone_link')
-" let line = s:make_tag(line, g:vimwiki_rxWikiWord, 's:tag_wikiword_link')
-"}}}
+  let line = s:make_tag(line, g:vimwiki_rxWikiIncl, 's:tag_wikiincl')
+  let line = s:make_tag(line, g:vimwiki_rxImagelink, 's:tag_imagelink')
+  let line = s:make_tag(line, g:vimwiki_rxWeblink, 's:tag_weblink')
   return line
 endfunction " }}}
 

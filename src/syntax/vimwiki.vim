@@ -19,6 +19,12 @@ execute 'runtime! syntax/vimwiki_'.VimwikiGet('syntax').'.vim'
 " generic headers
 if g:vimwiki_symH
   "" symmetric
+  let g:vimwiki_rxH1_Template = repeat(g:vimwiki_rxH, 1).' __Header__ '.repeat(g:vimwiki_rxH, 1)
+  let g:vimwiki_rxH2_Template = repeat(g:vimwiki_rxH, 2).' __Header__ '.repeat(g:vimwiki_rxH, 2)
+  let g:vimwiki_rxH3_Template = repeat(g:vimwiki_rxH, 3).' __Header__ '.repeat(g:vimwiki_rxH, 3)
+  let g:vimwiki_rxH4_Template = repeat(g:vimwiki_rxH, 4).' __Header__ '.repeat(g:vimwiki_rxH, 4)
+  let g:vimwiki_rxH5_Template = repeat(g:vimwiki_rxH, 5).' __Header__ '.repeat(g:vimwiki_rxH, 5)
+  let g:vimwiki_rxH6_Template = repeat(g:vimwiki_rxH, 6).' __Header__ '.repeat(g:vimwiki_rxH, 6)
   let g:vimwiki_rxH1 = '^\s*'.g:vimwiki_rxH.'\{1}[^'.g:vimwiki_rxH.']\+.*[^'.g:vimwiki_rxH.']\+'.g:vimwiki_rxH.'\{1}\s*$'
   let g:vimwiki_rxH2 = '^\s*'.g:vimwiki_rxH.'\{2}[^'.g:vimwiki_rxH.']\+.*[^'.g:vimwiki_rxH.']\+'.g:vimwiki_rxH.'\{2}\s*$'
   let g:vimwiki_rxH3 = '^\s*'.g:vimwiki_rxH.'\{3}[^'.g:vimwiki_rxH.']\+.*[^'.g:vimwiki_rxH.']\+'.g:vimwiki_rxH.'\{3}\s*$'
@@ -28,6 +34,12 @@ if g:vimwiki_symH
   let g:vimwiki_rxHeader = '^\s*\('.g:vimwiki_rxH.'\{1,6}\)\zs[^'.g:vimwiki_rxH.']\+.*[^'.g:vimwiki_rxH.']\+\ze\1\s*$'
 else
   "" asymm
+  let g:vimwiki_rxH1_Template = repeat(g:vimwiki_rxH, 1).' __Header__'
+  let g:vimwiki_rxH2_Template = repeat(g:vimwiki_rxH, 2).' __Header__'
+  let g:vimwiki_rxH3_Template = repeat(g:vimwiki_rxH, 3).' __Header__'
+  let g:vimwiki_rxH4_Template = repeat(g:vimwiki_rxH, 4).' __Header__'
+  let g:vimwiki_rxH5_Template = repeat(g:vimwiki_rxH, 5).' __Header__'
+  let g:vimwiki_rxH6_Template = repeat(g:vimwiki_rxH, 6).' __Header__'
   let g:vimwiki_rxH1 = '^\s*'.g:vimwiki_rxH.'\{1}[^'.g:vimwiki_rxH.']\+.*'
   let g:vimwiki_rxH2 = '^\s*'.g:vimwiki_rxH.'\{2}[^'.g:vimwiki_rxH.']\+.*'
   let g:vimwiki_rxH3 = '^\s*'.g:vimwiki_rxH.'\{3}[^'.g:vimwiki_rxH.']\+.*'
@@ -46,21 +58,35 @@ endif
 
 syntax spell toplevel
 
-syn match VimwikiLinkChar contained /\[\[/
-syn match VimwikiLinkChar contained /\]\]/
-syn match VimwikiLinkChar contained /\[\[[^\[\]\|]\{-}|\ze.\{-}]]/
-syn match VimwikiLinkChar contained /\[\[[^\[\]\|]\{-}]\[\ze.\{-}]]/
+
+execute 'syn match VimwikiLinkChar contained /'.g:vimwiki_rxWikiLinkPrefix.'/'
+execute 'syn match VimwikiLinkChar contained /'.g:vimwiki_rxWikiLinkSuffix.'/'
+execute 'syn match VimwikiLinkChar contained /'.g:vimwiki_rxWikiLinkPrefix.g:vimwiki_rxWikiLinkUrl.g:vimwiki_rxWikiLinkSeparator.'\ze'.g:vimwiki_rxWikiLinkDescr.g:vimwiki_rxWikiLinkSuffix.'/'
+
+execute 'syn match VimwikiLinkChar contained /'.g:vimwiki_rxWikiInclPrefix.'/'
+execute 'syn match VimwikiLinkChar contained /'.g:vimwiki_rxWikiInclSuffix.'/'
+execute 'syn match VimwikiLinkChar contained /'.g:vimwiki_rxWikiInclSeparator.'/ conceal cchar=~'
+execute 'syn match VimwikiLinkChar contained /'.g:vimwiki_rxWikiInclPrefix.g:vimwiki_rxWikiInclUrl.g:vimwiki_rxWikiInclSeparator.'\ze'.g:vimwiki_rxWikiInclArg.g:vimwiki_rxWikiInclArgs.g:vimwiki_rxWikiInclSuffix.'/'
+" syn match VimwikiLinkChar contained /{{[^\{\}\n]\{-}}{[^\{\}\n]\{-}\zs}{.*\ze}}/ TODO: trouble getting '\zs' working !?!
 
 if exists("+conceallevel")
   execute 'syn match VimwikiLinkRest contained `\(//.\{-}/\)\@<=\S\{'
         \.g:vimwiki_url_mingain.',}\([/=#?].\|.\{'
         \.g:vimwiki_url_maxsave.'}\)\@=` conceal cchar=~'
+  execute 'syn match VimwikiNoExistsLinkRest contained `\(//.\{-}/\)\@<=\S\{'
+        \.g:vimwiki_url_mingain.',}\([/=#?].\|.\{'
+        \.g:vimwiki_url_maxsave.'}\)\@=` conceal cchar=~'
 endif
 
-syn match VimwikiNoLinkChar contained /\[\[/
-syn match VimwikiNoLinkChar contained /\]\]/
-syn match VimwikiNoLinkChar contained /\[\[[^\[\]\|]\{-}|\ze.*]]/
-syn match VimwikiNoLinkChar contained /\[\[[^\[\]\|]\{-}]\[\ze.*]]/
+execute 'syn match VimwikiNoExistsLinkChar contained /'.g:vimwiki_rxWikiLinkPrefix.'/'
+execute 'syn match VimwikiNoExistsLinkChar contained /'.g:vimwiki_rxWikiLinkSuffix.'/'
+execute 'syn match VimwikiNoExistsLinkChar contained /'.g:vimwiki_rxWikiLinkPrefix.g:vimwiki_rxWikiLinkUrl.g:vimwiki_rxWikiLinkSeparator.'\ze'.g:vimwiki_rxWikiLinkDescr.g:vimwiki_rxWikiLinkSuffix.'/'
+
+execute 'syn match VimwikiNoExistsLinkChar contained /'.g:vimwiki_rxWikiInclPrefix.'/'
+execute 'syn match VimwikiNoExistsLinkChar contained /'.g:vimwiki_rxWikiInclSuffix.'/'
+execute 'syn match VimwikiNoExistsLinkChar contained /'.g:vimwiki_rxWikiInclSeparator.'/ conceal cchar=~'
+execute 'syn match VimwikiNoExistsLinkChar contained /'.g:vimwiki_rxWikiInclPrefix.g:vimwiki_rxWikiInclUrl.g:vimwiki_rxWikiInclSeparator.'\ze'.g:vimwiki_rxWikiInclArg.g:vimwiki_rxWikiInclArgs.g:vimwiki_rxWikiInclSuffix.'/'
+" syn match VimwikiNoExistsLinkChar contained /{{[^\{\}\n]\{-}}{[^\{\}\n]\{-}\zs}{.*\ze}}/ TODO: trouble getting '\zs' working !?!
 
 execute 'syn match VimwikiEqInChar contained /'.g:vimwiki_char_eqin.'/'
 execute 'syn match VimwikiBoldChar contained /'.g:vimwiki_char_bold.'/'
@@ -77,7 +103,7 @@ endif
 " }}}
 
 " Non concealed chars " {{{
-syn match VimwikiHeaderChar contained /\%(^\s*=\+\)\|\%(=\+\s*$\)/
+execute 'syn match VimwikiHeaderChar contained /\%(^\s*'.g:vimwiki_rxH.'\+\)\|\%('.g:vimwiki_rxH.'\+\s*$\)/'
 execute 'syn match VimwikiEqInCharT contained /'.g:vimwiki_char_eqin.'/'
 execute 'syn match VimwikiBoldCharT contained /'.g:vimwiki_char_bold.'/'
 execute 'syn match VimwikiItalicCharT contained /'.g:vimwiki_char_italic.'/'
@@ -298,7 +324,8 @@ hi def link VimwikiCodeChar VimwikiMarkers
 hi def link VimwikiHeaderChar VimwikiMarkers
 hi def link VimwikiLinkRest VimwikiLink
 hi def link VimwikiLinkChar VimwikiLink
-hi def link VimwikiNoLinkChar VimwikiNoExistsLink
+hi def link VimwikiNoExistsLinkRest VimwikiNoExistsLink
+hi def link VimwikiNoExistsLinkChar VimwikiNoExistsLink
 
 hi def link VimwikiEqInCharT VimwikiMarkers
 hi def link VimwikiBoldCharT VimwikiMarkers
@@ -311,7 +338,7 @@ hi def link VimwikiSubScriptCharT VimwikiMarkers
 hi def link VimwikiCodeCharT VimwikiMarkers
 hi def link VimwikiHeaderCharT VimwikiMarkers
 hi def link VimwikiLinkCharT VimwikiLinkT
-hi def link VimwikiNoLinkCharT VimwikiNoExistsLinkT
+hi def link VimwikiNoExistsLinkCharT VimwikiNoExistsLinkT
 "}}}
 
 let b:current_syntax="vimwiki"

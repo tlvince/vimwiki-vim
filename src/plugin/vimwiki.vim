@@ -135,6 +135,20 @@ function! s:setup_buffer_enter() "{{{
   endif
 endfunction "}}}
 
+function! s:get_suffix(template, tag) "{{{
+  let match_end = matchend(a:template, a:tag)
+  let match_end = (match_end > 0) ? match_end : 0
+  return a:template[match_end :]
+endfunction "}}}
+
+function! s:get_unique_chars(str) "{{{
+  let char_dict = {}
+  for chr in split(a:str, '\zs')
+    let char_dict[chr] = 1
+  endfor
+  return join(keys(char_dict), '')
+endfunction "}}}
+
 " OPTION get/set functions {{{
 " return value of option for current wiki or if second parameter exists for
 " wiki with a given index.
@@ -231,6 +245,14 @@ if !exists("*VimwikiWeblinkHandler") "{{{
 endif "}}}
 " CALLBACK }}}
 
+if !exists("*VimwikiWikiIncludeHandler") "{{{
+  function! VimwikiWikiIncludeHandler(value) "{{{
+    " Return the empty string when unable to process link
+    return ''
+  endfunction "}}}
+endif "}}}
+" CALLBACK }}}
+
 " DEFAULT wiki {{{
 let s:vimwiki_defaults = {}
 let s:vimwiki_defaults.path = '~/vimwiki/'
@@ -263,8 +285,25 @@ let s:vimwiki_defaults.diary_link_fmt = '%Y-%m-%d'
 let s:vimwiki_defaults.interwiki_prefix = ''
 let s:vimwiki_defaults.interwiki_domain = ''
 
+" NEW! in v1.3
 " custom_wiki2html
 let s:vimwiki_defaults.custom_wiki2html = ''
+
+" NEW! in v1.3
+" wikilink, wikiincl separators (should not be the same)
+"let s:vimwiki_defaults.wikilink_separator = ']['
+"let s:vimwiki_defaults.wikiincl_separator = '}{'
+let s:vimwiki_defaults.link_separator = ']['
+let s:vimwiki_defaults.incl_separator = '}{'
+
+" NEW! in v1.3
+" web_template, image_template
+" TODO: move to 'syntax/vimwiki_xxx.vim' ... !!
+let s:vimwiki_defaults.web_template = 
+      \ '[__LinkUrl__ __LinkDescription__]'
+let s:vimwiki_defaults.image_template = 
+      \ '{__LinkUrl__|__LinkDescription__|__LinkStyle__}'
+"
 "}}}
 
 " DEFAULT options {{{
@@ -297,6 +336,7 @@ call s:default('w32_dir_enc', '')
 call s:default('CJK_length', 0)
 call s:default('dir_link', '')
 call s:default('file_exts', 'pdf,txt,doc,rtf,xls,php,zip,rar,7z,html,gz')
+call s:default('image_exts', 'jpg,jpeg,png,gif')
 call s:default('valid_html_tags', 'b,i,s,u,sub,sup,kbd,br,hr,div,center,strong,em')
 call s:default('user_htmls', '')
 
@@ -321,7 +361,34 @@ call s:default('diary_months',
 call s:default('current_idx', 0)
 "}}}
 
+"
+" LINKS: Schemes and Interwikis {{{
+let g:vimwiki_web_schemes1 = 'http,https,file,ftp,gopher,telnet,nntp,ldap'.','.
+      \ 'rsync,imap,pop,irc,ircs,cvs,svn,svn+ssh,git,ssh,fish,sftp,notes'.','. 
+      \ 'ms-help'
+let g:vimwiki_web_schemes2 = 'mailto,news,xmpp,sip,sips,doi,urn,tel'
 
+let g:vimwiki_wiki_schemes = 'wiki'.','.
+      \ 'wiki0,wiki1,wiki2,wiki3,wiki4,wiki5,wiki6,wiki7,wiki8,wiki9'
+let g:vimwiki_diary_schemes = 'diary'.','.
+      \ 'diary0,diary1,diary2,diary3,diary4,diary5,diary6,diary7,diary8,diary9'
+let g:vimwiki_local_schemes = 'local'.','.
+      \ 'local0,local1,local2,local3,local4,local5,local6,local7,local8,local9'
+
+let rxSchemes = '\%('. 
+      \ join(split(g:vimwiki_wiki_schemes, '\s*,\s*'), '\|').'\|'.
+      \ join(split(g:vimwiki_diary_schemes, '\s*,\s*'), '\|').'\|'.
+      \ join(split(g:vimwiki_local_schemes, '\s*,\s*'), '\|').'\|'.
+      \ join(split(g:vimwiki_web_schemes1, '\s*,\s*'), '\|').'\|'. 
+      \ join(split(g:vimwiki_web_schemes2, '\s*,\s*'), '\|').
+      \ '\)'
+
+let g:vimwiki_rxSchemeUrl = rxSchemes.':.*'
+let g:vimwiki_rxSchemeUrlMatchScheme = '\zs'.rxSchemes.'\ze:.*'
+let g:vimwiki_rxSchemeUrlMatchUrl = rxSchemes.':\zs.*\ze'
+" }}}
+
+"
 " LINKS: WikiLinks  {{{
 let wword = '\C\<\%(['.g:vimwiki_upper.']['.g:vimwiki_lower.']\+\)\{2,}\>'
 
@@ -329,340 +396,259 @@ let wword = '\C\<\%(['.g:vimwiki_upper.']['.g:vimwiki_lower.']\+\)\{2,}\>'
 " 0a) match WikiWordURLs
 let g:vimwiki_rxWikiWord = g:vimwiki_wikiword_escape_prefix.'\@<!'.wword
 let g:vimwiki_rxNoWikiWord = g:vimwiki_wikiword_escape_prefix.wword
-
 "
-let g:vimwiki_rxWikiLinkUrl = '[^|\]]\+'
-let g:vimwiki_rxWikiLinkDescr = '[^\]]\+'
-let g:vimwiki_rxWikiLinkPrefix = '\[\['
-let g:vimwiki_rxWikiLinkSuffix = '\]\]'
+" TODO: put these in 'syntax/vimwiki_xxx.vim'
+let g:vimwiki_rxWikiLinkPrefix = '[['
+let g:vimwiki_rxWikiLinkSuffix = ']]'
+let g:vimwiki_rxWikiLinkSeparator = VimwikiGet('link_separator')
+" [[URL]]
+let g:vimwiki_WikiLinkTemplate1 = g:vimwiki_rxWikiLinkPrefix . '__LinkUrl__'. 
+      \ g:vimwiki_rxWikiLinkSuffix
+" [[URL][DESCRIPTION]]
+let g:vimwiki_WikiLinkTemplate2 = g:vimwiki_rxWikiLinkPrefix . '__LinkUrl__'. 
+      \ g:vimwiki_rxWikiLinkSeparator. '__LinkDescription__'.
+      \ g:vimwiki_rxWikiLinkSuffix
 "
-" 1. [[URL]]
-let g:vimwiki_WikilinkTemplate1 = '[[__LinkUrl__]]'
-" 1a) match [[URL]]
-let g:vimwiki_rxWikiLink1 = g:vimwiki_rxWikiLinkPrefix.
-      \ g:vimwiki_rxWikiLinkUrl. g:vimwiki_rxWikiLinkSuffix
-" 1b) match URL within [[URL]]
-let g:vimwiki_rxWikiLinkMatchUrl1 = g:vimwiki_rxWikiLinkPrefix.
-      \ '\zs'. g:vimwiki_rxWikiLinkUrl. '\ze'. g:vimwiki_rxWikiLinkSuffix
-" 1c) match DESCRIPTION within [[URL]]
-let g:vimwiki_rxWikiLinkMatchDescr1 = ''
+let magic_chars = '.*[]\^$'
+let exclude_chars = g:vimwiki_rxWikiLinkPrefix.g:vimwiki_rxWikiLinkSeparator.
+      \ g:vimwiki_rxWikiLinkSuffix
+let exclude_chars = s:get_unique_chars(exclude_chars)
+let valid_chars = '[^'.escape(exclude_chars, magic_chars).']'
 "
-" 2. [[URL][DESCRIPTION]]
-let g:vimwiki_WikilinkTemplate2 = '[[__LinkUrl__][__LinkDescription__]]'
-let g:vimwiki_rxWikiLinkSeparator2 = '\]\['
-" 2a) match [[URL][DESCRIPTION]]
-let g:vimwiki_rxWikiLink2 = g:vimwiki_rxWikiLinkPrefix.
-      \ g:vimwiki_rxWikiLinkUrl. g:vimwiki_rxWikiLinkSeparator2.
+let g:vimwiki_rxWikiLinkPrefix = escape(g:vimwiki_rxWikiLinkPrefix, magic_chars)
+let g:vimwiki_rxWikiLinkSuffix = escape(g:vimwiki_rxWikiLinkSuffix, magic_chars)
+let g:vimwiki_rxWikiLinkSeparator = escape(g:vimwiki_rxWikiLinkSeparator, magic_chars)
+let g:vimwiki_rxWikiLinkSeparatorOpt = '\%('.g:vimwiki_rxWikiLinkSeparator.'\)\?'
+let g:vimwiki_rxWikiLinkUrl = valid_chars.'\+'
+let g:vimwiki_rxWikiLinkDescr = valid_chars.'*'
+"
+" 1. [[URL]], or [[URL][DESCRIPTION]]
+" 1a) match [[URL][DESCRIPTION]]
+let g:vimwiki_rxWikiLink = g:vimwiki_rxWikiLinkPrefix.
+      \ g:vimwiki_rxWikiLinkUrl. g:vimwiki_rxWikiLinkSeparatorOpt.
       \ g:vimwiki_rxWikiLinkDescr. g:vimwiki_rxWikiLinkSuffix
-" 2b) match URL within [[URL][DESCRIPTION]]
-let g:vimwiki_rxWikiLinkMatchUrl2 = g:vimwiki_rxWikiLinkPrefix.
-      \ '\zs'. g:vimwiki_rxWikiLinkUrl. '\ze'. g:vimwiki_rxWikiLinkSeparator2.
+" 1b) match URL within [[URL][DESCRIPTION]]
+let g:vimwiki_rxWikiLinkMatchUrl = g:vimwiki_rxWikiLinkPrefix.
+      \ '\zs'. g:vimwiki_rxWikiLinkUrl. '\ze'. g:vimwiki_rxWikiLinkSeparatorOpt.
       \ g:vimwiki_rxWikiLinkDescr. g:vimwiki_rxWikiLinkSuffix
-" 2c) match DESCRIPTION within [[URL][DESCRIPTION]]
-let g:vimwiki_rxWikiLinkMatchDescr2 = g:vimwiki_rxWikiLinkPrefix.
-      \ g:vimwiki_rxWikiLinkUrl. g:vimwiki_rxWikiLinkSeparator2.
+" 1c) match DESCRIPTION within [[URL][DESCRIPTION]]
+let g:vimwiki_rxWikiLinkMatchDescr = g:vimwiki_rxWikiLinkPrefix.
+      \ g:vimwiki_rxWikiLinkUrl. g:vimwiki_rxWikiLinkSeparatorOpt.
       \ '\zs'. g:vimwiki_rxWikiLinkDescr. '\ze'. g:vimwiki_rxWikiLinkSuffix
 "
-" 3. [[URL|DESCRIPTION]]
-let g:vimwiki_WikilinkTemplate3 = '[[__LinkUrl__|__LinkDescription__]]'
-let g:vimwiki_rxWikiLinkSeparator3 = '|'
-" 3a) match [[URL|DESCRIPTION]]
-let g:vimwiki_rxWikiLink3 = g:vimwiki_rxWikiLinkPrefix.
-      \ g:vimwiki_rxWikiLinkUrl. g:vimwiki_rxWikiLinkSeparator3.
-      \ g:vimwiki_rxWikiLinkDescr. g:vimwiki_rxWikiLinkSuffix
-" 3b) match URL within [[URL|DESCRIPTION]]
-let g:vimwiki_rxWikiLinkMatchUrl3 = g:vimwiki_rxWikiLinkPrefix.
-      \ '\zs'. g:vimwiki_rxWikiLinkUrl. '\ze'. g:vimwiki_rxWikiLinkSeparator3.
-      \ g:vimwiki_rxWikiLinkDescr. g:vimwiki_rxWikiLinkSuffix
-" 3c) match DESCRIPTION within [[URL|DESCRIPTION]]
-let g:vimwiki_rxWikiLinkMatchDescr3 = g:vimwiki_rxWikiLinkPrefix.
-      \ g:vimwiki_rxWikiLinkUrl. g:vimwiki_rxWikiLinkSeparator3.
-      \ '\zs'. g:vimwiki_rxWikiLinkDescr. '\ze'. g:vimwiki_rxWikiLinkSuffix
-"
-" TODO: define / implement interwiki links
-" match interwiki PFX within PFX:URL
-let g:vimwiki_rxWikiLinkUrlMatchInterwikiPrefix = '[^:]\+\ze:'
-" match interwiki URL within PFX:URL
-let g:vimwiki_rxWikiLinkUrlMatchInterwikiLink = '[^:]\+:\zs.*'
-
-"
-" *. ANY wikilink
+" *. wikilink or wikiword
 if g:vimwiki_camel_case
-  " *a) match ANY wikilink
-  let g:vimwiki_rxWikiLink = ''.
-        \ g:vimwiki_rxWikiLink3.'\|'.
-        \ g:vimwiki_rxWikiLink2.'\|'.
-        \ g:vimwiki_rxWikiLink1.'\|'.
+  " *a) match ANY wikilink or wikiword
+  let g:vimwiki_rxWikiLink = g:vimwiki_rxWikiLink.'\|'. g:vimwiki_rxWikiWord
+  " *b) match URL wikilink or wikiword
+  let g:vimwiki_rxWikiLinkMatchUrl = g:vimwiki_rxWikiLinkMatchUrl.'\|'.
         \ g:vimwiki_rxWikiWord
-"      .'\|'.
-  " *b) match URL within ANY wikilink
-  let g:vimwiki_rxWikiLinkMatchUrl = ''.
-        \ g:vimwiki_rxWikiLinkMatchUrl3.'\|'.
-        \ g:vimwiki_rxWikiLinkMatchUrl2.'\|'.
-        \ g:vimwiki_rxWikiLinkMatchUrl1.'\|'.
-        \ g:vimwiki_rxWikiWord
-"      .'\|'.
-else
-  " *a) match ANY wikilink
-  let g:vimwiki_rxWikiLink = ''.
-        \ g:vimwiki_rxWikiLink3.'\|'.
-        \ g:vimwiki_rxWikiLink2.'\|'.
-        \ g:vimwiki_rxWikiLink1
-"      .'\|'.
-  " *b) match URL within ANY wikilink
-  let g:vimwiki_rxWikiLinkMatchUrl = ''.
-        \ g:vimwiki_rxWikiLinkMatchUrl3.'\|'.
-        \ g:vimwiki_rxWikiLinkMatchUrl2.'\|'.
-        \ g:vimwiki_rxWikiLinkMatchUrl1
-"      .'\|'.
 endif
-" *c) match DESCRIPTION within ANY wikilink
-let g:vimwiki_rxWikiLinkMatchDescr = ''.
-      \ g:vimwiki_rxWikiLinkMatchDescr3.'\|'.
-      \ g:vimwiki_rxWikiLinkMatchDescr2.'\|'.
-      \ g:vimwiki_rxWikiLinkMatchDescr1
-"      .'\|'.
 "}}}
+
+
+"
+" LINKS: WikiIncl {{{
+"
+" TODO: put these in 'syntax/vimwiki_xxx.vim'
+let g:vimwiki_rxWikiInclPrefix = '{{'
+let g:vimwiki_rxWikiInclSuffix = '}}'
+let g:vimwiki_rxWikiInclSeparator = VimwikiGet('incl_separator')
+"
+" '{{__LinkUrl__}}'
+let g:vimwiki_WikiInclTemplate1 = g:vimwiki_rxWikiInclPrefix . '__LinkUrl__'. 
+      \ g:vimwiki_rxWikiInclSuffix
+" '{{__LinkUrl____LinkDescription__}}'
+let g:vimwiki_WikiInclTemplate2 = g:vimwiki_rxWikiInclPrefix . '__LinkUrl__'. 
+      \ '__LinkDescription__'.
+      \ g:vimwiki_rxWikiInclSuffix
+"
+let magic_chars = '.*[]\^$'
+let exclude_chars = g:vimwiki_rxWikiInclPrefix. g:vimwiki_rxWikiInclSeparator.
+      \ g:vimwiki_rxWikiInclSuffix
+let exclude_chars = s:get_unique_chars(exclude_chars)
+let valid_chars = '[^'.escape(exclude_chars, magic_chars).']'
+"
+let g:vimwiki_rxWikiInclPrefix = escape(g:vimwiki_rxWikiInclPrefix, magic_chars)
+let g:vimwiki_rxWikiInclSuffix = escape(g:vimwiki_rxWikiInclSuffix, magic_chars)
+let g:vimwiki_rxWikiInclSeparator = escape(g:vimwiki_rxWikiInclSeparator, magic_chars)
+let g:vimwiki_rxWikiInclUrl = valid_chars.'\+'
+let g:vimwiki_rxWikiInclArg = valid_chars.'*'
+let g:vimwiki_rxWikiInclArgs = '\%('. g:vimwiki_rxWikiInclSeparator. g:vimwiki_rxWikiInclArg. '\)'.'*'
+"
+"
+" *. {{URL}[{...}]}  - i.e.  {{URL}}, {{URL}{ARG1}}, {{URL}{ARG1}{ARG2}}, etc.
+" *a) match {{URL}[{...}]}
+let g:vimwiki_rxWikiIncl = g:vimwiki_rxWikiInclPrefix.
+      \ g:vimwiki_rxWikiInclUrl. 
+      \ g:vimwiki_rxWikiInclArgs. g:vimwiki_rxWikiInclSuffix
+" *b) match URL within {{URL}[{...}]}
+let g:vimwiki_rxWikiInclMatchUrl = g:vimwiki_rxWikiInclPrefix.
+      \ '\zs'. g:vimwiki_rxWikiInclUrl. '\ze'.
+      \ g:vimwiki_rxWikiInclArgs. g:vimwiki_rxWikiInclSuffix
+" *c,d,e),...
+"   match n-th ARG within {{URL}[{ARG1}{ARG2}{...}]}
+function! VimwikiWikiInclMatchArg(nn_index)
+  let rx = g:vimwiki_rxWikiInclPrefix. g:vimwiki_rxWikiInclUrl
+  let rx = rx. repeat(g:vimwiki_rxWikiInclSeparator. g:vimwiki_rxWikiInclArg, a:nn_index-1)
+  if a:nn_index > 0
+    let rx = rx. g:vimwiki_rxWikiInclSeparator. '\zs'. g:vimwiki_rxWikiInclArg. '\ze'
+  endif
+  let rx = rx. g:vimwiki_rxWikiInclArgs. g:vimwiki_rxWikiInclSuffix
+  return rx
+endfunction
+"}}}
+
 
 "
 " LINKS: WebLinks {{{
 " match URL for common protocols;  XXX ms-help ??
 " see http://en.wikipedia.org/wiki/URI_scheme  http://tools.ietf.org/html/rfc3986
 let g:vimwiki_rxWebProtocols = ''.
-    \  '\%('.
-      \  '\%('.
-        \  '\%(https\?\|file\|ftp\|gopher\|telnet\|nntp\|ldap\|rsync\|imap\|pop\|ircs\?\|cvs\|svn\|svn+ssh\|git\|ssh\|fish\|sftp\|notes\|ms-help\):'.
-        \  '\%(\%(//\)\|\%(\\\\\)\)'.
-      \  '\)'.
-      \  '\|'.
-      \  '\%(mailto\|news\|xmpp\|sips\?\|doi\|urn\|tel\):'.
-    \  '\)'
+      \ '\%('.
+        \ '\%('.
+          \ '\%('.join(split(g:vimwiki_web_schemes1, '\s*,\s*'), '\|').'\):'.
+          \ '\%(\%(//\)\|\%(\\\\\)\)'.
+        \ '\)'.
+      \ '\|'.
+        \ '\%('.join(split(g:vimwiki_web_schemes2, '\s*,\s*'), '\|').'\):'.
+      \ '\)'
+"
 let g:vimwiki_rxWeblinkUrl = g:vimwiki_rxWebProtocols .
-    \  '\S\{-1,}\%(([^ \t()]*)\)\=' . '\%([),:;.!?]\=\%([ \t]\|$\)\)\@='
-" free-standing links: keep URL UR(L) strip trailing punct: URL; URL) UR(L)) 
-let g:vimwiki_rxWeblinkUrl3 = g:vimwiki_rxWebProtocols .
-    \  '[^ \]]\+' . '\%( *\|]\)\@='
-" ending with <SP> or ] : [URL descr] or [URL] or [URL ]
-let g:vimwiki_rxWeblinkUrl2 = g:vimwiki_rxWebProtocols .
-    \  '\S\{-1,}\%(([^ \t()]*)\)\=' . ' *)\@='
-" ending with ) : (URL) or (URL ) or (UR(L)) or (UR(L) )
-
-
-" " Url Character Set
-" let g:vimwiki_rxWebUrlChar = '[^| \t]'
-" let g:vimwiki_rxWeblinkUrl = ....
-"   \  g:vimwiki_rxWebUrlChar.'\{-1,}'. '([^ \t()]*)' 
-"   \  g:vimwiki_rxWebUrlChar.'\+'. '[.,;!?\]()]\@<!' 
+    \ '\S\{-1,}'. '\%(([^ \t()]*)\)\='
 
 " FIXME all submatches can be done with "numbered" \( \) groups
-" 0. URL
-let g:vimwiki_rxWeblink0 = '[\["(|]\@<!'. g:vimwiki_rxWeblinkUrl
+" 0. URL : free-standing links: keep URL UR(L) strip trailing punct: URL; URL) UR(L)) 
+let g:vimwiki_rxWeblink0 = '[\["(|]\@<!'. g:vimwiki_rxWeblinkUrl .
+      \ '\%([),:;.!?]\=\%([ \t]\|$\)\)\@='
 " 0a) match URL within URL
-let g:vimwiki_rxWeblinkMatchUrl0 = g:vimwiki_rxWeblinkUrl
+let g:vimwiki_rxWeblinkMatchUrl0 = g:vimwiki_rxWeblink0
+" 0b) match DESCRIPTION within URL
 let g:vimwiki_rxWeblinkMatchDescr0 = ''
 "
-" 1. "DESCRIPTION(OPTIONAL)":URL
-let g:vimwiki_rxWeblinkPrefix1 = '"'
-let g:vimwiki_rxWeblinkDescr1 = '\%([^"()]\+\%((\%([^()]\+\))\)\?\)\?'
-let g:vimwiki_rxWeblinkSeparator1 = '":'
-let g:vimwiki_rxWeblinkSuffix1 = ''
-" 1a) match "DESCRIPTION(OPTIONAL)":URL
-let g:vimwiki_rxWeblink1 = g:vimwiki_rxWeblinkPrefix1.
-      \ g:vimwiki_rxWeblinkDescr1. g:vimwiki_rxWeblinkSeparator1.
-      \ g:vimwiki_rxWeblinkUrl. g:vimwiki_rxWeblinkSuffix1
-" 1b) match URL within "DESCRIPTION(OPTIONAL)":URL
-let g:vimwiki_rxWeblinkMatchUrl1 = g:vimwiki_rxWeblinkPrefix1.
-      \ g:vimwiki_rxWeblinkDescr1. g:vimwiki_rxWeblinkSeparator1.
-      \ '\zs'. g:vimwiki_rxWeblinkUrl. '\ze'. g:vimwiki_rxWeblinkSuffix1
-" 1c) match DESCRIPTION(OPTIONAL) within "DESCRIPTION(OPTIONAL)":URL
-let g:vimwiki_rxWeblinkMatchDescr1 = g:vimwiki_rxWeblinkPrefix1.
-      \ '\zs'. g:vimwiki_rxWeblinkDescr1. '\ze' . g:vimwiki_rxWeblinkSeparator1.
-      \ g:vimwiki_rxWeblinkUrl. g:vimwiki_rxWeblinkSuffix1
+let template_args = '\%(__LinkUrl__\|__LinkDescription__\)'
+let web_template = VimwikiGet('web_template')
+if g:vimwiki_debug
+  echom 'Weblink Template: '.web_template
+endif
+let magic_chars = '.*[]\^$'
+" list all delimiters that appear in Template *after* DESCRIPTION
+let exclude_chars = s:get_suffix(web_template, '__LinkDescription__')
+let exclude_chars = join(split(exclude_chars, template_args), '')
+let exclude_chars = s:get_unique_chars(exclude_chars)
+let valid_chars = '[^'.escape(exclude_chars, magic_chars).']'
+let g:vimwiki_rxWeblinkDescr = valid_chars.'*'
 "
-" 2. [DESCRIPTION](URL)   N.b. the [] do not indicate an optional component
-let g:vimwiki_rxWeblinkPrefix2 = '[\[\]]\@<!\[' 
-let g:vimwiki_rxWeblinkDescr2 = '\%([^\[\]]*\)'
-let g:vimwiki_rxWeblinkSeparator2 = '\] *('
-let g:vimwiki_rxWeblinkSuffix2 = ')'
-" 2a) match [DESCRIPTION](URL)
-let g:vimwiki_rxWeblink2 = g:vimwiki_rxWeblinkPrefix2.
-      \ g:vimwiki_rxWeblinkDescr2. g:vimwiki_rxWeblinkSeparator2.
-      \ g:vimwiki_rxWeblinkUrl2. g:vimwiki_rxWeblinkSuffix2
-" 2b) match URL within [DESCRIPTION](URL)
-let g:vimwiki_rxWeblinkMatchUrl2 = g:vimwiki_rxWeblinkPrefix2.
-      \ g:vimwiki_rxWeblinkDescr2. g:vimwiki_rxWeblinkSeparator2.
-      \ '\zs'. g:vimwiki_rxWeblinkUrl2. '\ze'. g:vimwiki_rxWeblinkSuffix2
-" 2c) match DESCRIPTION within [DESCRIPTION](URL)
-let g:vimwiki_rxWeblinkMatchDescr2 = g:vimwiki_rxWeblinkPrefix2.
-      \ '\zs'. g:vimwiki_rxWeblinkDescr2. '\ze' . g:vimwiki_rxWeblinkSeparator2.
-      \ g:vimwiki_rxWeblinkUrl2. g:vimwiki_rxWeblinkSuffix2
+" " 2012-02-04 TODO not starting with [[ or ][ ?  ... prefix = '[\[\]]\@<!\[' 
+" 1. web template
+let g:vimwiki_rxWeblink1 = vimwiki#base#apply_template(web_template, 
+      \ g:vimwiki_rxWeblinkUrl, 
+      \ g:vimwiki_rxWeblinkDescr, 
+      \ '')
+" 1a) match URL within web template
+let g:vimwiki_rxWeblinkMatchUrl1 = vimwiki#base#apply_template(web_template,
+      \ '\zs'.g:vimwiki_rxWeblinkUrl.'\ze', 
+      \ g:vimwiki_rxWeblinkDescr, 
+      \ '')
+" 1b) match DESCRIPTION within web template
+let g:vimwiki_rxWeblinkMatchDescr1 = vimwiki#base#apply_template(web_template, 
+      \ g:vimwiki_rxWeblinkUrl, 
+      \ '\zs'.g:vimwiki_rxWeblinkDescr.'\ze', 
+      \ '')
 "
-" 3. [URL DESCRIPTION]
-" 2012-02-04 DONE - FIXME not starting with \[\[  ? 
-let g:vimwiki_rxWeblinkPrefix3 = '[\[\]]\@<!\['
-let g:vimwiki_rxWeblinkSeparator3 = '\s*'
-let g:vimwiki_rxWeblinkDescr3 = '\%([^\[\]]*\)'
-let g:vimwiki_rxWeblinkSuffix3 = '\]'
-" 3a) match [URL DESCRIPTION]
-let g:vimwiki_rxWeblink3 = g:vimwiki_rxWeblinkPrefix3.
-      \ g:vimwiki_rxWeblinkUrl3. g:vimwiki_rxWeblinkSeparator3. 
-      \ g:vimwiki_rxWeblinkDescr3. g:vimwiki_rxWeblinkSuffix3
-" 3b) match URL within [URL DESCRIPTION]
-let g:vimwiki_rxWeblinkMatchUrl3 = g:vimwiki_rxWeblinkPrefix3.
-      \ '\zs'. g:vimwiki_rxWeblinkUrl3. '\ze'. g:vimwiki_rxWeblinkSeparator3. 
-      \ g:vimwiki_rxWeblinkDescr3. g:vimwiki_rxWeblinkSuffix3
-" 3c) match DESCRIPTION within [URL DESCRIPTION]
-let g:vimwiki_rxWeblinkMatchDescr3 = g:vimwiki_rxWeblinkPrefix3.
-      \ g:vimwiki_rxWeblinkUrl3. g:vimwiki_rxWeblinkSeparator3. 
-      \ '\zs'. g:vimwiki_rxWeblinkDescr3. '\ze'. g:vimwiki_rxWeblinkSuffix3
 "
 " *. ANY weblink
 " *a) match ANY weblink
 let g:vimwiki_rxWeblink = ''.
-      \ g:vimwiki_rxWeblink2.'\|'.
-      \ g:vimwiki_rxWeblink3.'\|'. 
+      \ g:vimwiki_rxWeblink1.'\|'.
       \ g:vimwiki_rxWeblink0
-"      .'\|'.
-"      \ g:vimwiki_rxWeblink1.'\|'.
-"
 " *b) match URL within ANY weblink
 let g:vimwiki_rxWeblinkMatchUrl = ''.
-      \ g:vimwiki_rxWeblinkMatchUrl2.'\|'.
-      \ g:vimwiki_rxWeblinkMatchUrl3.'\|'. 
+      \ g:vimwiki_rxWeblinkMatchUrl1.'\|'.
       \ g:vimwiki_rxWeblinkMatchUrl0
-"      .'\|'.
-"      \ g:vimwiki_rxWeblinkMatchUrl1.'\|'.
-"
 " *c) match DESCRIPTION within ANY weblink
 let g:vimwiki_rxWeblinkMatchDescr = ''.
-      \ g:vimwiki_rxWeblinkMatchDescr2.'\|'.
-      \ g:vimwiki_rxWeblinkMatchDescr3.'\|'.
+      \ g:vimwiki_rxWeblinkMatchDescr1.'\|'.
       \ g:vimwiki_rxWeblinkMatchDescr0
-"      .'\|'.
-"      \ g:vimwiki_rxWeblinkMatchDescr1.'\|'.
 "
 "}}}
 
 
-" characters, excluding' ', '\t', or '[' following ']'
-let g:vimwiki_rxImageUrlChar = '\%([^| \t\[]\|\]\@<!\[\)'
 "
 " LINKS: Images {{{
+
 " match URL
-let g:vimwiki_rxImageUrl = ''.
-      \'\%('.
-        \'\%(https\?\|file\|ftp\|gopher\|telnet\|nntp\|ldap\|rsync\|imap\|pop\|ircs\?\|cvs\|svn\|svn+ssh\|git\|ssh\|fish\|sftp\|notes\|ms-help\):'.
-        \'\%(\%(//\)\|\%(\\\\\)\)'.
-      \'\)\?'.
-      \'\%('.
-        \'\%('. g:vimwiki_rxImageUrlChar.'\{-1,}'. '([^ \t()]*)'. '\)'.
-        \'\|'.
-        \'\%('. g:vimwiki_rxImageUrlChar.'\+'. '[,;!?\]()]\@<!'. '\)'.
-      \'\)'.
-      \'\%('.
-        \'\%(jpg\|jpeg\|png\|gif\)'.
-        \'\|'.
-        \'\%(JPG\|JPEG\|PNG\|GIF\)'.
-      \'\)'
+let g:vimwiki_rxImagelinkProtocols = ''.  
+      \ '\%('.
+        \ '\%('.join(split(g:vimwiki_web_schemes1, '\s*,\s*'), '\|'). '\):'.
+        \ '\%(\%(//\)\|\%(\\\\\)\)'.
+      \ '\)\?'
+"
+let g:vimwiki_rxImagelinkUrl = g:vimwiki_rxImagelinkProtocols .
+    \ '\S\{-1,}'. '\%(([^ \t()]*)\)\=' .
+    \ '\.'.
+    \ '\%('.
+      \ '\%('. join(split(tolower(g:vimwiki_image_exts), '\s*,\s*'), '\|'). '\)'.
+      \ '\|'.
+      \ '\%('. join(split(toupper(g:vimwiki_image_exts), '\s*,\s*'), '\|'). '\)'.
+    \ '\)'
 
 "
-let g:vimwiki_rxImagePrefix = '\[\['
-let g:vimwiki_rxImageSuffix = '\]\]'
+let template_args = '\%(__LinkUrl__\|__LinkDescription__\|__LinkStyle__\)'
+let t_Image = VimwikiGet('image_template')
+if g:vimwiki_debug
+  echom 'Image Template: '.t_Image
+endif
+let magic_chars = '.*[]\^$'
+" list all delimiters that appear in Template *after* DESCRIPTION
+let exclude_chars = s:get_suffix(t_Image, '__LinkDescription__')
+let exclude_chars = join(split(exclude_chars, template_args), '')
+let exclude_chars = s:get_unique_chars(exclude_chars)
+let valid_chars = '[^'.escape(exclude_chars, magic_chars).']'
+let g:vimwiki_rxImagelinkDescr = valid_chars.'*'
+" list all delimiters that appear in Template *after* STYLE
+let exclude_chars = s:get_suffix(t_Image, '__LinkStyle__')
+let exclude_chars = join(split(exclude_chars, template_args), '')
+let exclude_chars = s:get_unique_chars(exclude_chars)
+let valid_chars = '[^'.escape(exclude_chars, magic_chars).']'
+let g:vimwiki_rxImagelinkStyle = valid_chars.'*'
 "
-" " 0. URL
-" " let g:vimwiki_rxImage0 = g:vimwiki_rxImageUrl
-" " " 0a) match URL within URL
-" " let g:vimwiki_rxImageMatchUrl0 = g:vimwiki_rxImageUrl
-" " let g:vimwiki_rxImageMatchDescr0 = ''
-" " let g:vimwiki_rxImageMatchStyle0 = ''
 "
-" " 1. [[IMGURL]]
-" " 1a) match [[IMGURL]]
-" let g:vimwiki_rxImage1 = g:vimwiki_rxImagePrefix.
-"       \ g:vimwiki_rxImageUrl. g:vimwiki_rxImageSuffix
-" " 1b) match IMGURL within [[IMGURL]]
-" let g:vimwiki_rxImageMatchUrl1 = g:vimwiki_rxImagePrefix.
-"       \ '\zs'. g:vimwiki_rxImageUrl. '\ze'. g:vimwiki_rxImageSuffix
-" " 1c) match DESCRIPTION within [[IMGURL]]
-" let g:vimwiki_rxImageMatchDescr1 = ''
-" " 1d) match STYLE within [[IMGURL]]
-" let g:vimwiki_rxImageMatchStyle1 = ''
+" 1. image template
+let g:vimwiki_rxImagelink1 = vimwiki#base#apply_template(t_Image, 
+      \ g:vimwiki_rxImagelinkUrl, 
+      \ g:vimwiki_rxImagelinkDescr,
+      \ g:vimwiki_rxImagelinkStyle)
+" 1a) match URL within image template
+let g:vimwiki_rxImagelinkMatchUrl1 = vimwiki#base#apply_template(t_Image,
+      \ '\zs'.g:vimwiki_rxImagelinkUrl.'\ze', 
+      \ g:vimwiki_rxImagelinkDescr, 
+      \ g:vimwiki_rxImagelinkStyle)
+" 1b) match DESCRIPTION within image template
+let g:vimwiki_rxImagelinkMatchDescr1 = vimwiki#base#apply_template(t_Image,
+      \ g:vimwiki_rxImagelinkUrl, 
+      \ '\zs'.g:vimwiki_rxImagelinkDescr.'\ze', 
+      \ g:vimwiki_rxImagelinkStyle)
+" 1c) match STYLE within image template
+let g:vimwiki_rxImagelinkMatchStyle1 = vimwiki#base#apply_template(t_Image,
+      \ g:vimwiki_rxImagelinkUrl, 
+      \ g:vimwiki_rxImagelinkDescr,
+      \ '\zs'.g:vimwiki_rxImagelinkStyle.'\ze')
+" 
+" *. ANY image
+" *a) match ANY image
+let g:vimwiki_rxImagelink = ''.
+      \ g:vimwiki_rxImagelink1
+" *b) match URL within ANY image
+let g:vimwiki_rxImagelinkMatchUrl = ''.
+      \ g:vimwiki_rxImagelinkMatchUrl1
+" *c) match DESCRIPTION within ANY image
+let g:vimwiki_rxImagelinkMatchDescr = ''.
+      \ g:vimwiki_rxImagelinkMatchDescr1
+" *c) match STYLE within ANY image
+let g:vimwiki_rxImagelinkMatchStyle = ''.
+      \ g:vimwiki_rxImagelinkMatchStyle1
 "
-" 2. [[IMGURL][DESCRIPTION][STYLE]]
-let g:vimwiki_rxImageDescr2 = '[^\]]*'
-let g:vimwiki_rxImageSeparator2 = '\%(\]\[\)\?'
-let g:vimwiki_rxImageStyle2 = '[^\]]*'
-" 2a) match [[IMGURL][DESCRIPTION][STYLE]]
-let g:vimwiki_rxImage2 = g:vimwiki_rxImagePrefix.
-      \ g:vimwiki_rxImageUrl. g:vimwiki_rxImageSeparator2.
-      \ g:vimwiki_rxImageDescr2. g:vimwiki_rxImageSeparator2.
-      \ g:vimwiki_rxImageStyle2. g:vimwiki_rxImageSuffix
-" 2b) match IMGURL within [[IMGURL][DESCRIPTION][STYLE]]
-let g:vimwiki_rxImageMatchUrl2 = g:vimwiki_rxImagePrefix.
-      \ '\zs'. g:vimwiki_rxImageUrl. '\ze'. g:vimwiki_rxImageSeparator2.
-      \ g:vimwiki_rxImageDescr2. g:vimwiki_rxImageSeparator2.
-      \ g:vimwiki_rxImageStyle2. g:vimwiki_rxImageSuffix
-" 2c) match DESCRIPTION within [[IMGURL][DESCRIPTION][STYLE]]
-let g:vimwiki_rxImageMatchDescr2 = g:vimwiki_rxImagePrefix.
-      \ g:vimwiki_rxImageUrl. g:vimwiki_rxImageSeparator2.
-      \ '\zs'. g:vimwiki_rxImageDescr2. '\ze'. g:vimwiki_rxImageSeparator2.
-      \ g:vimwiki_rxImageStyle2. g:vimwiki_rxImageSuffix
-" 2d) match STYLE within [[IMGURL][DESCRIPTION][STYLE]]
-let g:vimwiki_rxImageMatchStyle2 = g:vimwiki_rxImagePrefix.
-      \ g:vimwiki_rxImageUrl. g:vimwiki_rxImageSeparator2.
-      \ g:vimwiki_rxImageDescr2. g:vimwiki_rxImageSeparator2.
-      \ '\zs'. g:vimwiki_rxImageStyle2. '\ze'. g:vimwiki_rxImageSuffix
-"
-" 3. [[IMGURL|DESCRIPTION|STYLE]]
-let g:vimwiki_rxImageDescr3 = '[^|\]]*'
-let g:vimwiki_rxImageSeparator3 = '|\?'
-let g:vimwiki_rxImageStyle3 = '[^|\]]*'
-" 3a) match [[IMGURL|DESCRIPTION|STYLE]]
-let g:vimwiki_rxImage3 = g:vimwiki_rxImagePrefix.
-      \ g:vimwiki_rxImageUrl. g:vimwiki_rxImageSeparator3.
-      \ g:vimwiki_rxImageDescr3. g:vimwiki_rxImageSeparator3.
-      \ g:vimwiki_rxImageStyle3. g:vimwiki_rxImageSuffix
-" 3b) match IMGURL within [[IMGURL|DESCRIPTION|STYLE]]
-let g:vimwiki_rxImageMatchUrl3 = g:vimwiki_rxImagePrefix.
-      \ '\zs'. g:vimwiki_rxImageUrl. '\ze'. g:vimwiki_rxImageSeparator3.
-      \ g:vimwiki_rxImageDescr3. g:vimwiki_rxImageSeparator3.
-      \ g:vimwiki_rxImageStyle3. g:vimwiki_rxImageSuffix
-" 3c) match DESCRIPTION within [[IMGURL|DESCRIPTION|STYLE]]
-let g:vimwiki_rxImageMatchDescr3 = g:vimwiki_rxImagePrefix.
-      \ g:vimwiki_rxImageUrl. g:vimwiki_rxImageSeparator3.
-      \ '\zs'. g:vimwiki_rxImageDescr3. '\ze'. g:vimwiki_rxImageSeparator3.
-      \ g:vimwiki_rxImageStyle3. g:vimwiki_rxImageSuffix
-" 3d) match STYLE within [[IMGURL|DESCRIPTION|STYLE]]
-let g:vimwiki_rxImageMatchStyle3 = g:vimwiki_rxImagePrefix.
-      \ g:vimwiki_rxImageUrl. g:vimwiki_rxImageSeparator3.
-      \ g:vimwiki_rxImageDescr3. g:vimwiki_rxImageSeparator3.
-      \ '\zs'. g:vimwiki_rxImageStyle3. '\ze'. g:vimwiki_rxImageSuffix
-"
-" *. ANY Image
-" *a) match ANY Image
-let g:vimwiki_rxImage = ''.
-      \ g:vimwiki_rxImage3.'\|'.
-      \ g:vimwiki_rxImage2
-"      .'\|'.
-"      \ .g:vimwiki_rxImage0
-" *b) match IMGURL within ANY Image
-let g:vimwiki_rxImageMatchUrl = ''.
-      \ g:vimwiki_rxImageMatchUrl3.'\|'.
-      \ g:vimwiki_rxImageMatchUrl2
-"      .'\|'.
-"      \ .g:vimwiki_rxImageMatchUrl0
-" *c) match DESCRIPTION within ANY Image
-let g:vimwiki_rxImageMatchDescr = ''.
-      \ g:vimwiki_rxImageMatchDescr3.'\|'.
-      \ g:vimwiki_rxImageMatchDescr2
-"      .'\|'.
-"      \ .g:vimwiki_rxImageMatchDescr0
-" *d) match STYLE within ANY Image
-let g:vimwiki_rxImageMatchStyle = ''.
-      \ g:vimwiki_rxImageMatchStyle3.'\|'.
-      \ g:vimwiki_rxImageMatchStyle2
-"      .'\|'.
-"      \ .g:vimwiki_rxImageMatchStyle0
 "}}}
 
 
