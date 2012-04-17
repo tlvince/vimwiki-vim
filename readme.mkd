@@ -1,0 +1,5 @@
+Vimwiki source files filtered from the [Github mirror][1] using
+[git-subtree][2].
+
+  [1]: https://github.com/vimwiki/vimwiki
+  [2]: https://github.com/apenwarr/git-subtree
